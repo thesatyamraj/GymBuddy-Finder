@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.high.satyammmm.gym-buddy-classic"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,6 +25,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4b27f7a9-cc91-42a6-9cb3-33f8b9227d11"
+      }
     }
   }
 }
