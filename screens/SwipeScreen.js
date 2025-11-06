@@ -155,10 +155,7 @@ export default function SwipeScreen({ navigation }) {
         return;
       }
 
-      if (!theyLikedBack) {
-        // no match yet
-        return;
-      }
+      if (!theyLikedBack) return; // no match yet
 
       // STEP 3: check existing matches (matches where I am a participant)
       let alreadyMatched = false;

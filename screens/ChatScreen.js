@@ -22,9 +22,7 @@ import {
   onSnapshot,
   serverTimestamp,
   doc,
-  getDoc,
   setDoc,
-  updateDoc,
 } from "firebase/firestore";
 
 export default function ChatScreen({ route, navigation }) {
@@ -33,34 +31,35 @@ export default function ChatScreen({ route, navigation }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const sendingRef = useRef(false);
   const flatListRef = useRef();
+
+  const goBackToTabs = () => {
+    try {
+      navigation.navigate("HomeTabs");
+    } catch {
+      navigation.goBack();
+    }
+  };
 
   if (!matchUser || !currentUser) {
     return (
       <View style={styles.center}>
         <Text style={{ color: "#666", fontSize: 16 }}>Unable to open chat.</Text>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() =>
-            navigation.reset({
-              index: 0,
-              routes: [{ name: "MainTabs" }],
-            })
-          }
-        >
+        <TouchableOpacity style={styles.backButton} onPress={goBackToTabs}>
           <Text style={styles.backText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // 🧩 Stable chat ID for the pair
+  // Stable chat ID for the pair (sorted)
   const chatId =
     currentUser.uid > matchUser.id
       ? `${currentUser.uid}_${matchUser.id}`
       : `${matchUser.id}_${currentUser.uid}`;
 
-  // 🎨 Header
+  // Header
   useLayoutEffect(() => {
     navigation.setOptions({
       title: matchUser.name || "Chat",
@@ -68,38 +67,26 @@ export default function ChatScreen({ route, navigation }) {
       headerTintColor: "#fff",
       headerTitleAlign: "center",
     });
-  }, [navigation, matchUser]);
+  }, [navigation, matchUser?.name]);
 
-  // ✅ Ensure chat doc exists (with users array) BEFORE listening to messages
+  // Create/patch chat doc (no reads) then subscribe to messages
   useEffect(() => {
     let unsubscribe;
+    let cancelled = false;
 
-    const ensureAndListen = async () => {
+    const createAndListen = async () => {
       try {
-        const chatRef = doc(db, "chats", chatId);
-        const snap = await getDoc(chatRef);
-
-        if (!snap.exists()) {
-          // Create minimal chat doc so security rules allow messages list
-          await setDoc(chatRef, {
+        // Upsert the chat doc so rules for messages can check parent users array
+        await setDoc(
+          doc(db, "chats", chatId),
+          {
             users: [currentUser.uid, matchUser.id],
+            // createdAt is harmless to re-set; server will write once if missing
             createdAt: serverTimestamp(),
-            lastMessage: null,
-            lastMessageTimestamp: serverTimestamp(),
-          });
-        } else {
-          // If exists but somehow missing users, patch it
-          const data = snap.data() || {};
-          if (!Array.isArray(data.users) || data.users.length < 2) {
-            await setDoc(
-              chatRef,
-              { users: [currentUser.uid, matchUser.id] },
-              { merge: true }
-            );
-          }
-        }
+          },
+          { merge: true }
+        );
 
-        // Now it's safe to subscribe to messages
         const q = query(
           collection(db, "chats", chatId, "messages"),
           orderBy("createdAt", "asc")
@@ -108,6 +95,7 @@ export default function ChatScreen({ route, navigation }) {
         unsubscribe = onSnapshot(
           q,
           (snapshot) => {
+            if (cancelled) return;
             const msgs = snapshot.docs.map((d) => ({
               id: d.id,
               ...d.data(),
@@ -128,35 +116,35 @@ export default function ChatScreen({ route, navigation }) {
       }
     };
 
-    ensureAndListen();
-    return () => unsubscribe && unsubscribe();
+    createAndListen();
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
   }, [chatId, currentUser.uid, matchUser.id]);
 
-  // ✉️ Send message
+  // Send message (no reads; upsert chat meta with merge)
   const sendMessage = async () => {
-    if (!input.trim()) return;
     const text = input.trim();
-    setInput("");
+    if (!text || sendingRef.current) return;
+    sendingRef.current = true;
 
     try {
-      const chatRef = doc(db, "chats", chatId);
-      const chatSnap = await getDoc(chatRef);
-
-      if (!chatSnap.exists()) {
-        // Create chat doc if it somehow got deleted
-        await setDoc(chatRef, {
+      // Upsert chat metadata (works for both create & update per your rules)
+      await setDoc(
+        doc(db, "chats", chatId),
+        {
           users: [currentUser.uid, matchUser.id],
+          lastMessage: text,
+          lastMessageTimestamp: serverTimestamp(),
+          // keep createdAt if it exists; if not, server sets it
           createdAt: serverTimestamp(),
-          lastMessage: text,
-          lastMessageTimestamp: serverTimestamp(),
-        });
-      } else {
-        await updateDoc(chatRef, {
-          lastMessage: text,
-          lastMessageTimestamp: serverTimestamp(),
-        });
-      }
+        },
+        { merge: true }
+      );
 
+      // Add the message
       await addDoc(collection(db, "chats", chatId, "messages"), {
         text,
         senderId: currentUser.uid,
@@ -164,17 +152,19 @@ export default function ChatScreen({ route, navigation }) {
         createdAt: serverTimestamp(),
       });
 
-      // Scroll down after a tiny delay
+      setInput("");
+
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 120);
     } catch (error) {
       console.error("Send message error:", error);
       Alert.alert("Error", "Could not send message. Try again.");
+    } finally {
+      sendingRef.current = false;
     }
   };
 
-  // 💬 Render each bubble
   const renderItem = ({ item }) => {
     const isCurrentUser = item.senderId === currentUser.uid;
     return (
@@ -196,7 +186,6 @@ export default function ChatScreen({ route, navigation }) {
     );
   };
 
-  // ⏳ Loading
   if (loading) {
     return (
       <View style={styles.center}>
@@ -229,6 +218,9 @@ export default function ChatScreen({ route, navigation }) {
           value={input}
           onChangeText={setInput}
           placeholderTextColor="#888"
+          returnKeyType="send"
+          onSubmitEditing={sendMessage}
+          blurOnSubmit={false}
         />
         <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
           <Ionicons name="send" size={22} color="#fff" />
@@ -238,7 +230,6 @@ export default function ChatScreen({ route, navigation }) {
   );
 }
 
-// 💅 Styles
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f0f0f0" },
   chatArea: { padding: 10, paddingBottom: 80 },

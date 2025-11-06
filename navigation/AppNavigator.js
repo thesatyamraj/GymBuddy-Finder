@@ -1,3 +1,4 @@
+// navigation/AppNavigator.js
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
@@ -9,6 +10,10 @@ import ChatScreen from "../screens/ChatScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 
+// 👇 Export stable IDs so nested screens can target parents reliably
+export const ROOT_STACK_ID = "RootStack";
+export const MAIN_STACK_ID = "MainStack";
+
 const RootStack = createNativeStackNavigator();
 const MainStack = createNativeStackNavigator();
 
@@ -18,8 +23,8 @@ const MainStack = createNativeStackNavigator();
  */
 function MainStackScreen() {
   return (
-    <MainStack.Navigator>
-      {/* Bottom tabs */}
+    <MainStack.Navigator id={MAIN_STACK_ID}>
+      {/* Bottom tabs (note: named HomeTabs to avoid same-name nesting) */}
       <MainStack.Screen
         name="HomeTabs"
         component={MainTabs}
@@ -73,7 +78,7 @@ function MainStackScreen() {
  */
 export default function AppNavigator({ user, hasProfile }) {
   return (
-    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+    <RootStack.Navigator id={ROOT_STACK_ID} screenOptions={{ headerShown: false }}>
       {!user ? (
         <RootStack.Screen name="Auth" component={AuthScreen} />
       ) : !hasProfile ? (

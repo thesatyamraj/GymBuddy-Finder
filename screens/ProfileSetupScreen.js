@@ -34,21 +34,20 @@ export default function ProfileSetupScreen({ navigation }) {
         return;
       }
 
-      // Make mediaTypes work across ImagePicker versions
-      const MediaTypeEnum = ImagePicker.MediaType || ImagePicker.MediaTypeOptions;
+      // Work across old/new expo-image-picker APIs
+      const MediaTypeEnum = ImagePicker.MediaType ?? ImagePicker.MediaTypeOptions;
+
       const options = {
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 1, // we'll compress after
+        quality: 1, // compress after with ImageManipulator
+        mediaTypes: MediaTypeEnum?.Images, // avoids deprecation warnings
       };
-      if (MediaTypeEnum?.Images) {
-        options.mediaTypes = MediaTypeEnum.Images;
-      }
 
       const result = await ImagePicker.launchImageLibraryAsync(options);
       if (result.canceled || !result.assets?.length) return;
 
-      // Resize + compress to stay under Firestore’s ~1 MiB limit for field values
+      // Resize + compress to keep under Firestore field size (~1 MiB)
       const manipulated = await ImageManipulator.manipulateAsync(
         result.assets[0].uri,
         [{ resize: { width: 512 } }],
@@ -68,7 +67,7 @@ export default function ProfileSetupScreen({ navigation }) {
 
   // 💾 Save user profile in Firestore
   const handleSaveProfile = async () => {
-    if (loading) return; // prevent double-tap
+    if (loading) return; // prevent double taps
     if (!name.trim() || !gymName.trim() || !workoutType.trim() || !timing.trim()) {
       Alert.alert("Incomplete Information", "Please fill in all fields before saving.");
       return;
@@ -94,9 +93,11 @@ export default function ProfileSetupScreen({ navigation }) {
       });
 
       Alert.alert("✅ Profile Created", "Your profile has been saved successfully!");
-      // Optional: sign out to restart flow; remove these two lines if you want to stay logged in
+
+      // Keep your sign-out (to re-run the gating and pick up hasProfile),
+      // but use reset instead of replace to avoid the warning.
       await signOut(auth);
-      navigation.replace("Auth");
+      navigation.reset({ index: 0, routes: [{ name: "Auth" }] });
     } catch (error) {
       console.error("Profile setup error:", error);
       Alert.alert("Error", error.message || "Failed to save profile. Try again.");

@@ -11,10 +11,13 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+} from "firebase/auth";
 import { auth } from "../firebase";
 
-export default function AuthScreen({ navigation }) {
+export default function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(true);
@@ -22,26 +25,52 @@ export default function AuthScreen({ navigation }) {
 
   // 🧩 Handle authentication (login or signup)
   const handleAuth = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password.");
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
+      Alert.alert("Missing info", "Please enter both email and password.");
+      return;
+    }
+
+    if (!isLogin && trimmedPassword.length < 6) {
+      Alert.alert("Weak password", "Password must be at least 6 characters.");
       return;
     }
 
     setLoading(true);
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
       } else {
-        await createUserWithEmailAndPassword(auth, email, password);
+        await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
       }
+      // ✅ Do NOT navigate manually; App.js + AppNavigator change the screen automatically.
     } catch (error) {
-      let message = "Something went wrong.";
-      if (error.code === "auth/invalid-email") message = "Invalid email address.";
-      else if (error.code === "auth/user-not-found") message = "No account found. Try signing up.";
-      else if (error.code === "auth/wrong-password") message = "Incorrect password.";
-      else if (error.code === "auth/email-already-in-use") message = "Email already in use.";
+      let message = "Something went wrong. Please try again.";
 
-      Alert.alert("Authentication Failed", message);
+      switch (error.code) {
+        case "auth/invalid-email":
+          message = "That email address looks invalid.";
+          break;
+        case "auth/user-not-found":
+          message = "No account found with that email.";
+          break;
+        case "auth/wrong-password":
+          message = "Incorrect password.";
+          break;
+        case "auth/email-already-in-use":
+          message = "This email is already registered.";
+          break;
+        case "auth/too-many-requests":
+          message = "Too many attempts. Try again later.";
+          break;
+        case "auth/network-request-failed":
+          message = "Network error. Check your connection.";
+          break;
+      }
+
+      Alert.alert(isLogin ? "Login failed" : "Sign up failed", message);
     } finally {
       setLoading(false);
     }
@@ -51,6 +80,7 @@ export default function AuthScreen({ navigation }) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
     >
       <Text style={styles.title}>🏋️‍♂️ Gym Buddy Finder</Text>
       <Text style={styles.subtitle}>
@@ -63,17 +93,24 @@ export default function AuthScreen({ navigation }) {
           placeholder="Email"
           placeholderTextColor="#888"
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="email-address"
+          textContentType="emailAddress"
           value={email}
           onChangeText={setEmail}
+          editable={!loading}
         />
         <TextInput
           style={styles.input}
           placeholder="Password"
           placeholderTextColor="#888"
           secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="password"
           value={password}
           onChangeText={setPassword}
+          editable={!loading}
         />
       </View>
 
@@ -81,6 +118,7 @@ export default function AuthScreen({ navigation }) {
         style={[styles.button, loading && { opacity: 0.7 }]}
         onPress={handleAuth}
         disabled={loading}
+        activeOpacity={0.85}
       >
         {loading ? (
           <ActivityIndicator color="#fff" />
@@ -89,7 +127,11 @@ export default function AuthScreen({ navigation }) {
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
+      <TouchableOpacity
+        onPress={() => !loading && setIsLogin(!isLogin)}
+        disabled={loading}
+        activeOpacity={0.7}
+      >
         <Text style={styles.switchText}>
           {isLogin
             ? "Don't have an account? Sign Up"

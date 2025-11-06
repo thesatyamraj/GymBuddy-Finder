@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useLayoutEffect } from "react";
+// screens/ProfileScreen.js
+import React, { useEffect, useState, useLayoutEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +11,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { auth, db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -18,38 +20,55 @@ export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🧩 Load current user's profile
-  useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        if (!user) {
-          Alert.alert("Session expired", "Please log in again.");
-          navigation.reset({ index: 0, routes: [{ name: "Auth" }] });
-          return;
-        }
-
-        const snap = await getDoc(doc(db, "users", user.uid));
-        if (snap.exists()) {
-          setProfile(snap.data());
-        } else {
-          navigation.reset({ index: 0, routes: [{ name: "ProfileSetup" }] });
-        }
-      } catch (e) {
-        console.error("Load profile error:", e);
-        Alert.alert("Error", "Failed to load your profile.");
-      } finally {
-        setLoading(false);
+  const loadProfile = useCallback(async () => {
+    try {
+      if (!user) {
+        Alert.alert("Session expired", "Please log in again.");
+        navigation.reset({ index: 0, routes: [{ name: "Auth" }] });
+        return;
       }
-    };
-    loadProfile();
-  }, [user]);
+      const snap = await getDoc(doc(db, "users", user.uid));
+      if (snap.exists()) {
+        setProfile(snap.data());
+      } else {
+        navigation.reset({ index: 0, routes: [{ name: "ProfileSetup" }] });
+      }
+    } catch (e) {
+      console.error("Load profile error:", e);
+      Alert.alert("Error", "Failed to load your profile.");
+    } finally {
+      setLoading(false);
+    }
+  }, [navigation, user]);
 
-  // 🧭 Go to edit screen
+  // Initial load
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  // Reload when returning to this screen (e.g., after saving edits)
+  useFocusEffect(
+    useCallback(() => {
+      // Skip the spinner on refocus; just refresh quietly
+      (async () => {
+        if (profile) {
+          try {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            if (snap.exists()) setProfile(snap.data());
+          } catch (e) {
+            console.log("Silent profile refresh failed:", e);
+          }
+        }
+      })();
+    }, [profile, user?.uid])
+  );
+
+  // Go to Edit Profile
   const goToEdit = () => {
     navigation.navigate("EditProfile", { profile });
   };
 
-  // 🧭 Add header edit icon
+  // Header with Edit icon
   useLayoutEffect(() => {
     navigation.setOptions({
       headerShown: true,
@@ -62,9 +81,9 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       ),
     });
-  }, [navigation, profile]);
+  }, [navigation]);
 
-  // ⏳ Loading
+  // Loading
   if (loading) {
     return (
       <View style={styles.center}>
@@ -74,7 +93,7 @@ export default function ProfileScreen({ navigation }) {
     );
   }
 
-  // ❌ No profile found
+  // No profile
   if (!profile) {
     return (
       <View style={styles.center}>
@@ -85,7 +104,6 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Profile Picture */}
       <View style={styles.avatarWrap}>
         <Image
           source={{
@@ -99,23 +117,13 @@ export default function ProfileScreen({ navigation }) {
 
       <Text style={styles.name}>{profile.name || "Unnamed User"}</Text>
 
-      {/* Profile Info */}
       <View style={styles.card}>
         <InfoRow icon="mail-outline" label="Email" value={profile.email || "-"} />
         <InfoRow icon="barbell-outline" label="Gym" value={profile.gymName || "-"} />
-        <InfoRow
-          icon="fitness-outline"
-          label="Workout Type"
-          value={profile.workoutType || "-"}
-        />
-        <InfoRow
-          icon="time-outline"
-          label="Preferred Time"
-          value={profile.timing || "-"}
-        />
+        <InfoRow icon="fitness-outline" label="Workout Type" value={profile.workoutType || "-"} />
+        <InfoRow icon="time-outline" label="Preferred Time" value={profile.timing || "-"} />
       </View>
 
-      {/* Edit Button */}
       <TouchableOpacity style={styles.primaryBtn} onPress={goToEdit}>
         <Text style={styles.btnText}>Edit Profile</Text>
       </TouchableOpacity>
@@ -123,13 +131,12 @@ export default function ProfileScreen({ navigation }) {
   );
 }
 
-// ✅ Info row with icon + label + value
 function InfoRow({ icon, label, value }) {
   return (
     <View style={styles.row}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
         <Ionicons name={icon} size={18} color="#007AFF" />
-        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={[styles.rowLabel, { marginLeft: 6 }]}>{label}</Text>
       </View>
       <Text style={styles.rowValue}>{value}</Text>
     </View>
@@ -137,17 +144,8 @@ function InfoRow({ icon, label, value }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    backgroundColor: "#fff",
-    flexGrow: 1,
-  },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
+  container: { padding: 20, backgroundColor: "#fff", flexGrow: 1 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
   avatarWrap: {
     alignSelf: "center",
     width: 140,

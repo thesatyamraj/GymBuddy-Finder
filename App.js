@@ -1,5 +1,5 @@
 // App.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { onAuthStateChanged } from "firebase/auth";
@@ -13,32 +13,43 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [hasProfile, setHasProfile] = useState(false);
 
-  // 🔐 Monitor Firebase Auth state
+  // Keep a mounted flag to avoid setting state after unmount
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // 🔐 Listen to Firebase Auth state and check profile existence
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
+        if (!mountedRef.current) return;
+
         if (firebaseUser) {
           setUser(firebaseUser);
-
-          // ✅ Check if Firestore profile exists
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          setHasProfile(userDoc.exists());
+          try {
+            const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+            if (!mountedRef.current) return;
+            setHasProfile(userDoc.exists());
+          } catch (e) {
+            console.error("Error checking Firestore profile:", e);
+            if (mountedRef.current) setHasProfile(false);
+          }
         } else {
           setUser(null);
           setHasProfile(false);
         }
-      } catch (error) {
-        console.error("Error verifying user profile:", error);
-        setHasProfile(false);
       } finally {
-        setInitializing(false);
+        if (mountedRef.current) setInitializing(false);
       }
     });
 
     return unsubscribe;
   }, []);
 
-  // ⏳ Loading screen while checking auth
+  // ⏳ Splash while we verify auth/profile
   if (initializing) {
     return (
       <View style={styles.loader}>
@@ -47,7 +58,7 @@ export default function App() {
     );
   }
 
-  // 🧭 Main navigation entry
+  // 🧭 Main navigation
   return (
     <NavigationContainer>
       <AppNavigator user={user} hasProfile={hasProfile} />

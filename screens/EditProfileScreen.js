@@ -16,6 +16,8 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { auth, db } from "../firebase";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
+const MAX_DATAURL_BYTES = 950_000; // keep some headroom under 1 MiB
+
 export default function EditProfileScreen({ navigation }) {
   const user = auth.currentUser;
   const [name, setName] = useState("");
@@ -26,7 +28,6 @@ export default function EditProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // 🔄 Load current profile
   useEffect(() => {
     const loadProfile = async () => {
       try {
@@ -42,7 +43,7 @@ export default function EditProfileScreen({ navigation }) {
           setGymName(d.gymName || "");
           setWorkoutType(d.workoutType || "");
           setTiming(d.timing || "");
-          setImageBase64(d.photoURL || null); // Base64 data URL stored in Firestore
+          setImageBase64(d.photoURL || null);
         }
       } catch (e) {
         console.error("Load profile error:", e);
@@ -54,7 +55,6 @@ export default function EditProfileScreen({ navigation }) {
     loadProfile();
   }, []);
 
-  // 📸 Pick & compress new image (Base64) — version-proof across ImagePicker releases
   const pickImage = async () => {
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -63,23 +63,14 @@ export default function EditProfileScreen({ navigation }) {
         return;
       }
 
-      // Resolve mediaTypes across versions:
-      // - Newer versions: ImagePicker.MediaType.Images
-      // - Older versions: ImagePicker.MediaTypeOptions.Images
       const MediaTypeEnum = ImagePicker.MediaType || ImagePicker.MediaTypeOptions;
-      const options = {
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 1,
-      };
-      if (MediaTypeEnum?.Images) {
-        options.mediaTypes = MediaTypeEnum.Images;
-      }
-      // If neither exists, we omit mediaTypes and let it default.
+      const options = { allowsEditing: true, aspect: [1, 1], quality: 1 };
+      if (MediaTypeEnum?.Images) options.mediaTypes = MediaTypeEnum.Images;
 
       const result = await ImagePicker.launchImageLibraryAsync(options);
       if (result.canceled || !result.assets?.length) return;
 
+      // compress + base64
       const manipulated = await ImageManipulator.manipulateAsync(
         result.assets[0].uri,
         [{ resize: { width: 512 } }],
@@ -90,7 +81,30 @@ export default function EditProfileScreen({ navigation }) {
         Alert.alert("Error", "Could not process image.");
         return;
       }
-      setImageBase64(`data:image/jpeg;base64,${manipulated.base64}`);
+
+      const dataUrl = `data:image/jpeg;base64,${manipulated.base64}`;
+      if (dataUrl.length > MAX_DATAURL_BYTES) {
+        Alert.alert(
+          "Image too large",
+          "Try choosing a smaller image or we’ll compress more."
+        );
+        // extra compression step (fallback)
+        const smaller = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [{ resize: { width: 420 } }],
+          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (!smaller.base64) return;
+        const smallerUrl = `data:image/jpeg;base64,${smaller.base64}`;
+        if (smallerUrl.length > MAX_DATAURL_BYTES) {
+          Alert.alert("Still too large", "Please pick a smaller image.");
+          return;
+        }
+        setImageBase64(smallerUrl);
+        return;
+      }
+
+      setImageBase64(dataUrl);
     } catch (err) {
       console.error("Image picker error:", err);
       Alert.alert("Error", "Could not open image picker.");
@@ -99,8 +113,8 @@ export default function EditProfileScreen({ navigation }) {
 
   const clearImage = () => setImageBase64(null);
 
-  // 💾 Save updates (Firestore only, no Storage)
   const saveProfile = async () => {
+    if (saving) return;
     if (!name.trim() || !gymName.trim() || !workoutType.trim() || !timing.trim()) {
       Alert.alert("Incomplete", "Please fill in all fields.");
       return;
@@ -117,7 +131,7 @@ export default function EditProfileScreen({ navigation }) {
           workoutType: workoutType.trim(),
           timing: timing.trim(),
           email: user.email || null,
-          photoURL: imageBase64 || null, // Base64 data URL
+          photoURL: imageBase64 || null,
           updatedAt: serverTimestamp(),
         },
         { merge: true }

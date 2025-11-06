@@ -1,3 +1,4 @@
+// screens/ChatsScreen.js
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -15,7 +16,6 @@ import {
   query,
   where,
   onSnapshot,
-  orderBy,
   getDoc,
   doc,
 } from "firebase/firestore";
@@ -44,17 +44,14 @@ export default function ChatsScreen({ navigation }) {
   // 🧩 Real-time listener for user's chats
   useEffect(() => {
     if (!currentUser) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Auth" }],
-      });
+      navigation.reset({ index: 0, routes: [{ name: "Auth" }] });
       return;
     }
 
+    // ❌ No orderBy here → avoids composite index requirement
     const q = query(
       collection(db, "chats"),
-      where("users", "array-contains", currentUser.uid),
-      orderBy("lastMessageTimestamp", "desc")
+      where("users", "array-contains", currentUser.uid)
     );
 
     const unsubscribe = onSnapshot(
@@ -64,16 +61,14 @@ export default function ChatsScreen({ navigation }) {
 
         for (const chatDoc of snapshot.docs) {
           const chatData = chatDoc.data();
-          const otherUserId = chatData.users.find(
+          const otherUserId = chatData.users?.find(
             (uid) => uid !== currentUser.uid
           );
-
           if (!otherUserId) continue;
 
           try {
             const userRef = doc(db, "users", otherUserId);
             const userSnap = await getDoc(userRef);
-
             if (userSnap.exists()) {
               chatList.push({
                 id: chatDoc.id,
@@ -98,7 +93,7 @@ export default function ChatsScreen({ navigation }) {
     );
 
     return unsubscribe;
-  }, [currentUser]);
+  }, [currentUser, navigation]);
 
   // Helper: initials for fallback avatar
   const initials = (me?.name || "")
@@ -169,7 +164,9 @@ export default function ChatsScreen({ navigation }) {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.chatItem}
-            onPress={() => navigation.navigate("Chat", { matchUser: item.otherUser })}
+            onPress={() =>
+              navigation.navigate("Chat", { matchUser: item.otherUser })
+            }
           >
             <Image
               source={{
@@ -182,7 +179,9 @@ export default function ChatsScreen({ navigation }) {
               style={styles.avatar}
             />
             <View style={styles.info}>
-              <Text style={styles.name}>{item.otherUser.name || "Gym Buddy"}</Text>
+              <Text style={styles.name}>
+                {item.otherUser.name || "Gym Buddy"}
+              </Text>
               <Text style={styles.message} numberOfLines={1}>
                 {item.lastMessage || "Tap to start chatting..."}
               </Text>

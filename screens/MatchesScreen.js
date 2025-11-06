@@ -1,3 +1,4 @@
+// screens/MatchesScreen.js
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -15,23 +16,8 @@ import { Ionicons } from "@expo/vector-icons";
 
 export default function MatchesScreen({ navigation }) {
   const [matches, setMatches] = useState([]);
-  const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
   const currentUser = auth.currentUser;
-
-  // 🧑‍💻 Load current user's profile for avatar
-  useEffect(() => {
-    const loadMe = async () => {
-      try {
-        if (!currentUser) return;
-        const snap = await getDoc(doc(db, "users", currentUser.uid));
-        if (snap.exists()) setMe(snap.data());
-      } catch (e) {
-        console.error("Error loading current user:", e);
-      }
-    };
-    loadMe();
-  }, [currentUser]);
 
   // 🧩 Real-time listener for user's matches
   useEffect(() => {
@@ -39,40 +25,37 @@ export default function MatchesScreen({ navigation }) {
 
     const q = query(collection(db, "matches"), where("users", "array-contains", currentUser.uid));
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const fetchedMatches = [];
+    const unsubscribe = onSnapshot(
+      q,
+      async (snapshot) => {
+        const fetched = [];
+        for (const docSnap of snapshot.docs) {
+          const match = docSnap.data();
+          const otherUserId = (match.users || []).find((id) => id !== currentUser.uid);
+          if (!otherUserId) continue;
 
-      for (const docSnap of snapshot.docs) {
-        const match = docSnap.data();
-        const otherUserId = match.users.find((id) => id !== currentUser.uid);
-        if (!otherUserId) continue;
-
-        try {
-          const userRef = doc(db, "users", otherUserId);
-          const userDoc = await getDoc(userRef);
-          if (userDoc.exists()) {
-            fetchedMatches.push({ id: userDoc.id, ...userDoc.data() });
+          try {
+            const userRef = doc(db, "users", otherUserId);
+            const userDoc = await getDoc(userRef);
+            if (userDoc.exists()) {
+              fetched.push({ id: userDoc.id, ...userDoc.data() });
+            }
+          } catch (error) {
+            console.error("Error loading match:", error);
           }
-        } catch (error) {
-          console.error("Error loading match:", error);
         }
+        setMatches(fetched);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Matches listener error:", err);
+        Alert.alert("Error", "Unable to load your matches.");
+        setLoading(false);
       }
-
-      setMatches(fetchedMatches);
-      setLoading(false);
-    });
+    );
 
     return unsubscribe;
   }, [currentUser]);
-
-  // Helper: initials for fallback avatar
-  const initials = (me?.name || "")
-    .split(" ")
-    .map((s) => s[0])
-    .filter(Boolean)
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 
   // 🌀 Loading view
   if (loading) {
@@ -93,7 +76,7 @@ export default function MatchesScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.navigate("Swipes")}
+          onPress={() => navigation.getParent()?.navigate("Swipes")}
         >
           <Text style={styles.backText}>Back to Swipes</Text>
         </TouchableOpacity>
@@ -101,38 +84,12 @@ export default function MatchesScreen({ navigation }) {
     );
   }
 
-  // ✅ Main UI
+  // ✅ Main list
   return (
     <View style={styles.container}>
-      {/* Header with profile avatar */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Profile")}
-          activeOpacity={0.8}
-          style={styles.meButton}
-        >
-          {me?.photoURL ? (
-            <Image source={{ uri: me.photoURL }} style={styles.meAvatar} />
-          ) : (
-            <View style={[styles.meAvatar, styles.meFallback]}>
-              <Text style={styles.meInitials}>{initials || "U"}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        <Text style={styles.headerTitle}>❤️ Your Matches</Text>
-
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={() => navigation.navigate("Chats")}
-        >
-          <Ionicons name="chatbubble-ellipses-outline" size={22} color="#007AFF" />
-        </TouchableOpacity>
-      </View>
-
       <FlatList
         data={matches}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => String(item.id)}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
           <TouchableOpacity
@@ -151,10 +108,10 @@ export default function MatchesScreen({ navigation }) {
             />
             <View style={styles.info}>
               <Text style={styles.name}>{item.name || "Gym Buddy"}</Text>
-              {item.workoutType && (
+              {item.workoutType ? (
                 <Text style={styles.bio}>Workout: {item.workoutType}</Text>
-              )}
-              {item.gymName && <Text style={styles.bio}>Gym: {item.gymName}</Text>}
+              ) : null}
+              {item.gymName ? <Text style={styles.bio}>Gym: {item.gymName}</Text> : null}
             </View>
             <Ionicons name="chevron-forward-outline" size={22} color="#ccc" />
           </TouchableOpacity>
@@ -165,52 +122,12 @@ export default function MatchesScreen({ navigation }) {
 }
 
 // 💅 Styles
-const AVATAR_SIZE = 36;
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f9f9f9",
-    paddingTop: 60,
+    paddingTop: 10,       // header is handled by the stack, so no extra top padding
     paddingHorizontal: 10,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    marginBottom: 15,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#007AFF",
-  },
-  meButton: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    overflow: "hidden",
-    backgroundColor: "#eee",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  meAvatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-  },
-  meFallback: {
-    backgroundColor: "#DDE8FF",
-    borderWidth: 1,
-    borderColor: "#B7CEFF",
-  },
-  meInitials: { color: "#2F6BFF", fontWeight: "700" },
-  iconButton: {
-    padding: 6,
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    elevation: 2,
   },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   noMatchText: {
@@ -229,11 +146,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     elevation: 2,
   },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-  },
+  avatar: { width: 60, height: 60, borderRadius: 30 },
   info: { flex: 1, marginLeft: 12 },
   name: { fontSize: 18, fontWeight: "bold", color: "#333" },
   bio: { fontSize: 14, color: "#666" },
